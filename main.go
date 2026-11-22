@@ -10,6 +10,7 @@ type User struct {
 	ID      string
 	Name    string
 	Balance float64
+	mu      sync.Mutex
 }
 
 // TODO: Создайте структуру Transaction с полями FromID, ToID и Amount
@@ -51,8 +52,9 @@ func (ps *PaymentSystem) Worker(wg *sync.WaitGroup, ch <-chan Transaction) error
 	for transaction := range ch {
 		err := ps.ProcessingTransactions(transaction)
 		if err != nil {
-			return fmt.Errorf("worker: failed to process transaction from %q to %q (amount %.2f): %w",
+			fmt.Printf("worker: failed to process transaction from %q to %q (amount %.2f): %w",
 				transaction.FromID, transaction.ToID, transaction.Amount, err)
+			continue
 		}
 	}
 	return nil
@@ -84,11 +86,15 @@ func (p *PaymentSystem) ProcessingTransactions(tx Transaction) error {
 
 // TODO: Реализуйте метод Deposit
 func (u *User) Deposit(amount float64) {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	u.Balance += amount
 }
 
 // TODO: Реализуйте метод Withdraw с проверкой на недостаток средств
 func (u *User) WithDraw(amount float64) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	if u.Balance < amount {
 		return fmt.Errorf("insufficient funds: balance %.2f, requested %.2f", u.Balance, amount)
 	}
