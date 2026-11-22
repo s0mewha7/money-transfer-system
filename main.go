@@ -1,6 +1,9 @@
 package main
 
-import "fmt"
+import (
+	"fmt"
+	"sync"
+)
 
 // TODO: Создайте структуру User с полями ID, Name и Balance
 type User struct {
@@ -39,29 +42,43 @@ func (p *PaymentSystem) AddTransaction(tx Transaction) {
 	p.TransactionQueue = append(p.TransactionQueue, tx)
 }
 
+// TODO: Создать функцию Worker, которая будет обрабатывать транзакции
+// В эту функцию перенесется так же логика, которую выполняли в Части 2 - "Обрабатываем транзакции по очереди"
+// Только массив по которому будем идти не TransactionQueue, а наш канал ch
+
+func (ps *PaymentSystem) Worker(wg *sync.WaitGroup, ch <-chan Transaction) error {
+	defer wg.Done()
+	for transaction := range ch {
+		err := ps.ProcessingTransactions(transaction)
+		if err != nil {
+			return fmt.Errorf("worker: failed to process transaction from %q to %q (amount %.2f): %w",
+				transaction.FromID, transaction.ToID, transaction.Amount, err)
+		}
+	}
+	return nil
+}
+
 // TODO: Реализуйте метод ProcessingTransactions. Метод должен возвращать ошибки если:
 // 1. Пользователь ToID не найден
 // 2. Пользователь FromID не найден
 // 3. У пользователя баланс меньше чем перевод (получить ошибку из Withdraw)
 
-func (p *PaymentSystem) ProcessingTransactions() error {
-	for _, tx := range p.TransactionQueue {
-		to, ok := p.Users[tx.ToID]
-		if !ok {
-			return fmt.Errorf("recipient %q not found", tx.ToID)
-		}
-
-		from, ok := p.Users[tx.FromID]
-		if !ok {
-			return fmt.Errorf("sender %q not found", tx.FromID)
-		}
-
-		if err := from.WithDraw(tx.Amount); err != nil {
-			return err
-		}
-
-		to.Deposit(tx.Amount)
+func (p *PaymentSystem) ProcessingTransactions(tx Transaction) error {
+	to, ok := p.Users[tx.ToID]
+	if !ok {
+		return fmt.Errorf("recipient %q not found", tx.ToID)
 	}
+
+	from, ok := p.Users[tx.FromID]
+	if !ok {
+		return fmt.Errorf("sender %q not found", tx.FromID)
+	}
+
+	if err := from.WithDraw(tx.Amount); err != nil {
+		return err
+	}
+
+	to.Deposit(tx.Amount)
 	return nil
 }
 
@@ -81,67 +98,47 @@ func (u *User) WithDraw(amount float64) error {
 }
 
 func main() {
-	//// TODO: Создайте несколько пользователей user1, user2
-	//user1 := &User{ID: "1", Name: "User1", Balance: 1000}
-	//user2 := &User{ID: "2", Name: "User2", Balance: 0}
-	//
-	//// TODO: Проверьте работу методов Deposit и Withdraw
-	//
-	//user1.Deposit(120.0)
-	//err := user1.WithDraw(100.0)
-	//
-	//if err != nil {
-	//	fmt.Println(err)
-	//}
-	//
-	//user2.Deposit(100)
-	//
-	//err2 := user2.WithDraw(200.0)
-	//
-	//if err2 != nil {
-	//	fmt.Println(err2)
-	//}
-	//
-	//// TODO: Выведите информацию о пользователях
-	//fmt.Printf("ID: %s, Name: %s, Balance: %.2f\n", user1.ID, user1.Name, user1.Balance)
-	//fmt.Printf("ID: %s, Name: %s, Balance: %.2f\n", user2.ID, user2.Name, user2.Balance)
+	// DONE: Инициализируем структуру PaymentSystem через указатель
+	ps := NewPaymentSystem()
 
-	// TODO: Инициализируем структуру PaymentSystem через указатель, чтобы работать с ней напрямую и сохранять изменения
-	NewPayment := NewPaymentSystem()
-
-	// TODO: Добавить пользователей через AddUser
 	fmt.Println("Создаю UserID: 1 с балансом 1000")
-	NewPayment.AddUser("1")
-	NewPayment.Users["1"].Deposit(1000)
-
 	fmt.Println("Создаю UserID: 2 с балансом 500")
-	NewPayment.AddUser("2")
-	NewPayment.Users["2"].Deposit(500)
 
-	// TODO: Добавляем транзакции
+	// DONE: Добавить пользователей через AddUser
+	ps.AddUser("1")
+	ps.Users["1"].Deposit(1000)
+	ps.AddUser("2")
+	ps.Users["2"].Deposit(500)
+
 	fmt.Println("Перевожу с UserID: 1 на UserID: 2 сумму в размере 200")
-	NewPayment.AddTransaction(
-		Transaction{
-			FromID: "1",
-			ToID:   "2",
-			Amount: 200,
-		})
-
 	fmt.Println("Перевожу с UserID: 2 на UserID: 1 сумму в размере 50")
-	NewPayment.AddTransaction(
-		Transaction{
-			FromID: "2",
-			ToID:   "1",
-			Amount: 50,
-		})
 
-	// TODO: Обрабатываем транзакции по очереди
-	if err := NewPayment.ProcessingTransactions(); err != nil {
-		fmt.Println("Ошибка обработки:", err)
+	// DONE: Добавляем транзакции
+	ps.AddTransaction(Transaction{FromID: "1", ToID: "2", Amount: 200})
+	ps.AddTransaction(Transaction{FromID: "2", ToID: "1", Amount: 50})
+
+	// TODO: Создать канал ch := ...
+	ch := make(chan Transaction, len(ps.TransactionQueue))
+
+	// TODO: Инициализируем sync.WaitGroup
+	var wg sync.WaitGroup
+
+	// TODO: Создаем несколько горутин через цикл for i := 0 ...
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go ps.Worker(&wg, ch)
 	}
 
-	// Итог
+	// TODO: Передаем все транзакции в канал и завершаем/закрываем наш канал
+	for _, tx := range ps.TransactionQueue {
+		ch <- tx
+	}
+	close(ch)
+
+	// TODO: Ждём завершения всех горутин
+	wg.Wait()
+
 	fmt.Println("Итого")
-	fmt.Printf("User 1: %.2f (ожидалось 850)\n", NewPayment.Users["1"].Balance)
-	fmt.Printf("User 2: %.2f (ожидалось 650)\n", NewPayment.Users["2"].Balance)
+	fmt.Printf("У первого пользователя должно получиться 850, а получилось %f\n", ps.Users["1"].Balance)
+	fmt.Printf("У второго пользователя должно получиться 650, а получилось %f", ps.Users["2"].Balance)
 }
